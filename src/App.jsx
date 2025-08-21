@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "./App.css";
 import RoomCreation from "./components/RoomCreation";
 import RoomJoin from "./components/RoomJoin";
@@ -8,6 +8,29 @@ function App() {
   const [currentView, setCurrentView] = useState("home");
   const [roomData, setRoomData] = useState(null);
   const [userId, setUserId] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Check for persisted room data on page load
+    const savedRoom = localStorage.getItem("currentRoom");
+    if (savedRoom) {
+      try {
+        const {
+          roomData: savedRoomData,
+          userId: savedUserId,
+          currentView: savedView,
+        } = JSON.parse(savedRoom);
+        setRoomData(savedRoomData);
+        setUserId(savedUserId);
+        setCurrentView("game"); // Always go to game view when restoring
+        console.log("Restored room from localStorage:", savedRoomData.code);
+      } catch (error) {
+        console.error("Error restoring room data:", error);
+        localStorage.removeItem("currentRoom");
+      }
+    }
+    setIsLoading(false);
+  }, []);
 
   const handleCreateRoom = (roomCode, hostName, newUserId, newRoomData) => {
     setUserId(newUserId);
@@ -25,7 +48,24 @@ function App() {
     setCurrentView("home");
     setRoomData(null);
     setUserId(null);
+    localStorage.removeItem("currentRoom");
   };
+
+  if (isLoading) {
+    return (
+      <div className="screen-container">
+        <div className="content-wrapper">
+          <div className="card">
+            <div className="loading-state">
+              <div className="spinner"></div>
+              <h3>Loading...</h3>
+              <p>Checking for existing session...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const renderCurrentView = () => {
     switch (currentView) {

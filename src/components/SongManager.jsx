@@ -11,45 +11,47 @@ const SongManager = ({
   const [songTitle, setSongTitle] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const extractVideoId = (url) => {
-    const regex =
-      /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-    const match = url.match(regex);
-    return match ? match[1] : null;
-  };
+  const songsArray = songs ? Object.values(songs) : [];
 
-  const handleAddSong = async (e) => {
-    e.preventDefault();
-    if (!youtubeUrl.trim()) return;
+  // const extractVideoId = (url) => {
+  //   const regex =
+  //     /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+  //   const match = url.match(regex);
+  //   return match ? match[1] : null;
+  // };
 
-    setIsLoading(true);
-    const videoId = extractVideoId(youtubeUrl);
+  // const handleAddSong = async (e) => {
+  //   e.preventDefault();
+  //   if (!youtubeUrl.trim()) return;
 
-    if (!videoId) {
-      alert("Please enter a valid YouTube URL");
-      setIsLoading(false);
-      return;
-    }
+  //   setIsLoading(true);
+  //   const videoId = extractVideoId(youtubeUrl);
 
-    try {
-      const title = songTitle.trim() || `Song ${songs.length + 1}`;
+  //   if (!videoId) {
+  //     alert("Please enter a valid YouTube URL");
+  //     setIsLoading(false);
+  //     return;
+  //   }
 
-      const newSong = {
-        url: youtubeUrl,
-        title: title,
-        videoId: videoId,
-        addedAt: Date.now(),
-      };
+  //   try {
+  //     const title = songTitle.trim() || `Song ${songs.length + 1}`;
 
-      onAddSong(newSong);
-      setYoutubeUrl("");
-      setSongTitle("");
-    } catch (error) {
-      alert("Error adding song. Please try again.");
-    }
+  //     const newSong = {
+  //       url: youtubeUrl,
+  //       title: title,
+  //       videoId: videoId,
+  //       addedAt: Date.now(),
+  //     };
 
-    setIsLoading(false);
-  };
+  //     onAddSong(newSong);
+  //     setYoutubeUrl("");
+  //     setSongTitle("");
+  //   } catch (error) {
+  //     alert("Error adding song. Please try again.");
+  //   }
+
+  //   setIsLoading(false);
+  // };
 
   return (
     <div className="screen-container">
@@ -57,47 +59,13 @@ const SongManager = ({
         <div className="card">
           <div className="song-manager-header">
             <h3>Song Playlist</h3>
-            <span className="song-count">{songs.length} songs</span>
+            <span className="song-count">{songsArray.length} songs</span>
           </div>
 
-          {isHost && (
-            <div className="add-song-section">
-              <h4>Add New Song</h4>
-              <form onSubmit={handleAddSong} className="add-song-form">
-                <div className="form-group">
-                  <label>YouTube URL:</label>
-                  <input
-                    type="url"
-                    value={youtubeUrl}
-                    onChange={(e) => setYoutubeUrl(e.target.value)}
-                    placeholder="Paste YouTube URL here..."
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Song Title (Optional):</label>
-                  <input
-                    type="text"
-                    value={songTitle}
-                    onChange={(e) => setSongTitle(e.target.value)}
-                    placeholder="Enter song title"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="btn btn-add"
-                >
-                  {isLoading ? "Adding..." : "+ Add Song"}
-                </button>
-              </form>
-            </div>
-          )}
-
-          {songs.length > 0 ? (
+          {songsArray.length > 0 ? (
             <div className="song-list-section">
               <div className="song-list">
-                {songs.map((song, index) => (
+                {songsArray.map((song, index) => (
                   <div key={song.id} className="song-item">
                     <div className="song-info">
                       <span className="song-number">{index + 1}</span>
@@ -126,12 +94,24 @@ const SongManager = ({
               </div>
 
               {isHost && (
-                <button
-                  onClick={onStartGame}
-                  className="btn btn-primary btn-large start-game-btn"
-                >
-                  🎮 Start Game with {songs.length} songs
-                </button>
+                <div className="game-controls">
+                  <button
+                    onClick={onStartGame}
+                    className="btn btn-primary btn-large start-game-btn"
+                  >
+                    🎮 Start Game with {songsArray.length} songs
+                  </button>
+                  <p className="help-text">
+                    All songs were added during room creation. Ready to play?
+                  </p>
+                </div>
+              )}
+
+              {!isHost && (
+                <div className="waiting-host">
+                  <p>🎵 {songsArray.length} songs ready to play!</p>
+                  <p>Waiting for host to start the game...</p>
+                </div>
               )}
             </div>
           ) : (
@@ -139,7 +119,10 @@ const SongManager = ({
               <div className="empty-icon">🎵</div>
               <h3>No songs added yet!</h3>
               {isHost ? (
-                <p>Add some YouTube songs to get started.</p>
+                <div>
+                  <p>Songs can only be added when creating the room.</p>
+                  <p>Create a new room to add songs.</p>
+                </div>
               ) : (
                 <p>Waiting for the host to add songs...</p>
               )}

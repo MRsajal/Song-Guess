@@ -7,17 +7,33 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
   const [room, setRoom] = useState(roomData);
   const [currentView, setCurrentView] = useState("songs");
   const [isConnected, setIsConnected] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const isHost = userId === room.hostId;
 
   useEffect(() => {
+    // Save room data to localStorage for persistence
+    localStorage.setItem(
+      "currentRoom",
+      JSON.stringify({
+        roomData: room,
+        userId,
+        currentView,
+      })
+    );
+  }, [room, userId, currentView]);
+
+  useEffect(() => {
     // Subscribe to real-time room updates
+    setLoading(true);
     const unsubscribe = FirebaseService.subscribeToRoom(
       room.code,
       (updatedRoom) => {
         if (updatedRoom) {
+          console.log("Room updated from Firebase:", updatedRoom);
           setRoom(updatedRoom);
           setIsConnected(true);
+          setLoading(false);
 
           // Auto-switch to game view if host starts the game
           if (updatedRoom.gameState === "playing" && currentView === "songs") {
@@ -26,6 +42,8 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
         } else {
           // Room was deleted
           setIsConnected(false);
+          setLoading(false);
+          localStorage.removeItem("currentRoom");
           alert("Room no longer exists");
           onLeaveRoom();
         }
@@ -36,13 +54,6 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
       unsubscribe();
     };
   }, [room.code, currentView, onLeaveRoom]);
-
-  const addSong = async (song) => {
-    const result = await FirebaseService.addSong(room.code, song);
-    if (!result.success) {
-      alert(result.error || "Failed to add song");
-    }
-  };
 
   const removeSong = async (songId) => {
     const result = await FirebaseService.removeSong(room.code, songId);
@@ -59,10 +70,13 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
       } else {
         alert(result.error || "Failed to start game");
       }
+    } else {
+      alert("Please add some songs before starting the game!");
     }
   };
 
   const handleLeaveRoom = async () => {
+    localStorage.removeItem("currentRoom");
     await FirebaseService.leaveRoom(room.code, userId);
     onLeaveRoom();
   };
@@ -98,6 +112,22 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
               <button onClick={onLeaveRoom} className="btn btn-primary">
                 Back to Home
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="screen-container">
+        <div className="content-wrapper">
+          <div className="card">
+            <div className="loading-state">
+              <div className="spinner"></div>
+              <h3>Loading room...</h3>
+              <p>Syncing with other players...</p>
             </div>
           </div>
         </div>
@@ -147,7 +177,6 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
         {currentView === "songs" ? (
           <SongManager
             songs={room.songs || {}}
-            onAddSong={addSong}
             onRemoveSong={removeSong}
             onStartGame={startGame}
             isHost={isHost}
