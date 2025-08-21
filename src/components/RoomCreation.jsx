@@ -57,7 +57,8 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
     if (!hostName.trim()) return;
 
     setIsCreatingRoom(true);
-    const userId = `user_${Date.now()}_${Math.random()}`;
+    // Use the safe user ID generator from FirebaseService
+    const userId = FirebaseService.generateUserId();
 
     try {
       const result = await FirebaseService.createRoom(hostName, userId, songs);

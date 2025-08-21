@@ -11,7 +11,8 @@ const RoomJoin = ({ onJoinRoom, onBack }) => {
     if (!roomCode.trim() || !playerName.trim()) return;
 
     setIsJoining(true);
-    const userId = `user_${Date.now()}_${Math.random()}`;
+    // Use the safe user ID generator from FirebaseService
+    const userId = FirebaseService.generateUserId();
 
     try {
       const result = await FirebaseService.joinRoom(
@@ -32,7 +33,6 @@ const RoomJoin = ({ onJoinRoom, onBack }) => {
 
     setIsJoining(false);
   };
-
   return (
     <div className="screen-container">
       <div className="content-wrapper">

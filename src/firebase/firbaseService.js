@@ -11,6 +11,11 @@ import {
 } from "firebase/database";
 
 class FirebaseService {
+  // Generate safe user ID (no dots or invalid characters)
+  static generateUserId() {
+    return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
   // Generate unique room code
   static generateRoomCode() {
     return Math.random().toString(36).substr(2, 6).toUpperCase();
@@ -29,13 +34,16 @@ class FirebaseService {
         codeExists = roomSnapshot.exists();
       }
 
+      // Clean userId to ensure it's Firebase-safe
+      const safeUserId = userId.replace(/[.#$\/\[\]]/g, "_");
+
       const roomData = {
         code: roomCode,
         host: hostName,
-        hostId: userId,
+        hostId: safeUserId,
         participants: {
-          [userId]: {
-            id: userId,
+          [safeUserId]: {
+            id: safeUserId,
             name: hostName,
             joinedAt: serverTimestamp(),
           },
@@ -64,7 +72,16 @@ class FirebaseService {
       return {
         success: true,
         roomCode,
-        roomData,
+        roomData: {
+          ...roomData,
+          participants: {
+            [safeUserId]: {
+              id: safeUserId,
+              name: hostName,
+              joinedAt: Date.now(),
+            },
+          },
+        },
       };
     } catch (error) {
       console.error("Error creating room:", error);
@@ -90,12 +107,18 @@ class FirebaseService {
 
       const roomData = roomSnapshot.val();
 
+      // Clean userId to ensure it's Firebase-safe
+      const safeUserId = userId.replace(/[.#$\/\[\]]/g, "_");
+
       // Add participant to room
-      await update(ref(database, `rooms/${roomCode}/participants/${userId}`), {
-        id: userId,
-        name: playerName,
-        joinedAt: serverTimestamp(),
-      });
+      await update(
+        ref(database, `rooms/${roomCode}/participants/${safeUserId}`),
+        {
+          id: safeUserId,
+          name: playerName,
+          joinedAt: serverTimestamp(),
+        }
+      );
 
       // Update last activity
       await update(ref(database, `rooms/${roomCode}`), {
@@ -108,8 +131,8 @@ class FirebaseService {
           ...roomData,
           participants: {
             ...roomData.participants,
-            [userId]: {
-              id: userId,
+            [safeUserId]: {
+              id: safeUserId,
               name: playerName,
               joinedAt: Date.now(),
             },
@@ -128,7 +151,9 @@ class FirebaseService {
   // Add song to room
   static async addSong(roomCode, song) {
     try {
-      const songId = `song_${Date.now()}_${Math.random()}`;
+      const songId = `song_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
       await set(ref(database, `rooms/${roomCode}/songs/${songId}`), {
         ...song,
         id: songId,
@@ -224,7 +249,12 @@ class FirebaseService {
   // Leave room
   static async leaveRoom(roomCode, userId) {
     try {
-      await remove(ref(database, `rooms/${roomCode}/participants/${userId}`));
+      // Clean userId to ensure it's Firebase-safe
+      const safeUserId = userId.replace(/[.#$\/\[\]]/g, "_");
+
+      await remove(
+        ref(database, `rooms/${roomCode}/participants/${safeUserId}`)
+      );
 
       // Check if room is empty, if so delete it
       const roomSnapshot = await get(
@@ -248,8 +278,11 @@ class FirebaseService {
   // Submit guess
   static async submitGuess(roomCode, userId, userGuess, songTitle) {
     try {
+      // Clean userId to ensure it's Firebase-safe
+      const safeUserId = userId.replace(/[.#$\/\[\]]/g, "_");
+
       const guessData = {
-        userId,
+        userId: safeUserId,
         guess: userGuess,
         timestamp: serverTimestamp(),
         correct:
