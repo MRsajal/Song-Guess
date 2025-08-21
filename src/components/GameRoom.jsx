@@ -5,6 +5,7 @@ import GamePlay from "./GamePlay";
 const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
   const [room, setRoom] = useState(roomData);
   const [currentView, setCurrentView] = useState("songs");
+  const [roomState, setRoomState] = useState("songs");
 
   const isHost = userId === room.hostId;
 
@@ -24,23 +25,24 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
 
   const startGame = () => {
     if (room.songs.length > 0) {
-      // Shuffle the songs array randomly
       const shuffledSongs = [...room.songs].sort(() => Math.random() - 0.5);
 
       setCurrentView("game");
+      setRoomState("playing");
       setRoom((prev) => ({
         ...prev,
-        songs: shuffledSongs, // Use shuffled songs instead of original order
+        songs: shuffledSongs,
         gameState: "playing",
         currentGame: {
           currentSongIndex: 0,
           scores: {},
           startTime: Date.now(),
+          currentEmojis: "", // Add this to store current emojis
+          currentSongTitle: shuffledSongs[0]?.title || "",
         },
       }));
     }
   };
-
   const copyRoomCode = () => {
     navigator.clipboard.writeText(room.code);
     alert("Room code copied to clipboard!");
@@ -56,6 +58,16 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
     } else {
       copyRoomCode();
     }
+  };
+
+  const updateGameState = (newGameState) => {
+    setRoom((prev) => ({
+      ...prev,
+      currentGame: {
+        ...prev.currentGame,
+        ...newGameState,
+      },
+    }));
   };
 
   return (
@@ -92,18 +104,19 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
       </div>
 
       <div className="game-content">
-        {currentView === "songs" ? (
+        {currentView === "game" ? (
+          <GamePlay
+            room={room}
+            onBackToSongs={() => setCurrentView("songs")}
+            onUpdateGameState={updateGameState} // Add this prop
+            isHost={isHost}
+          />
+        ) : (
           <SongManager
             songs={room.songs}
             onAddSong={addSong}
             onRemoveSong={removeSong}
             onStartGame={startGame}
-            isHost={isHost}
-          />
-        ) : (
-          <GamePlay
-            room={room}
-            onBackToSongs={() => setCurrentView("songs")}
             isHost={isHost}
           />
         )}

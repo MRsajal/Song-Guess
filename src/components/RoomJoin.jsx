@@ -7,7 +7,40 @@ const RoomJoin = ({ onJoinRoom, onBack }) => {
   const handleJoin = (e) => {
     e.preventDefault();
     if (roomCode.trim() && playerName.trim()) {
-      onJoinRoom(roomCode.toUpperCase(), playerName);
+      // Simulate joining a room that might already have a game in progress
+      const joinedRoom = {
+        code: roomCode.toUpperCase(),
+        host: "Demo Host",
+        hostId: "demo-host",
+        participants: [
+          { id: "demo-host", name: "Demo Host" },
+          { id: Date.now().toString(), name: playerName },
+        ],
+        songs: [
+          {
+            id: 1,
+            title: "Shape of You",
+            url: "https://youtube.com/watch?v=demo1",
+            videoId: "demo1",
+          },
+          {
+            id: 2,
+            title: "Blinding Lights",
+            url: "https://youtube.com/watch?v=demo2",
+            videoId: "demo2",
+          },
+        ],
+        currentGame: {
+          currentSongIndex: 0,
+          scores: {},
+          startTime: Date.now(),
+          currentEmojis: "🔷👤💘🎵", // Demo emojis
+          gamePhase: "guessing",
+          timeLeft: 25,
+        },
+        gameState: "playing",
+      };
+      onJoinRoom(roomCode.toUpperCase(), playerName, joinedRoom);
     }
   };
 

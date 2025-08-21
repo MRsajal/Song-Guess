@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
 import GeminiService from "./GeminiService";
 
-const GamePlay = ({ room, onBackToSongs, isHost }) => {
+const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
   const [currentSong, setCurrentSong] = useState(0);
   const [emojis, setEmojis] = useState("");
   const [userGuess, setUserGuess] = useState("");
   const [gamePhase, setGamePhase] = useState("loading");
-  const [timeLeft, setTimeLeft] = useState(60);
+  const [timeLeft, setTimeLeft] = useState(30);
   const [scores, setScores] = useState({});
   const [isGeneratingEmojis, setIsGeneratingEmojis] = useState(false);
 
@@ -29,21 +29,91 @@ const GamePlay = ({ room, onBackToSongs, isHost }) => {
 
     setIsGeneratingEmojis(true);
     setGamePhase("loading");
+    //setApiError(null);
 
     try {
+      console.log("Generating emojis for:", song.title);
       const generatedEmojis = await GeminiService.generateEmojis(song.title);
+      console.log("Generated emojis:", generatedEmojis);
+
       setEmojis(generatedEmojis);
       setGamePhase("guessing");
-      setTimeLeft(60);
+      setTimeLeft(30); // Changed from 60 to 30
+
+      // Share emojis with all players (if host)
+      if (isHost && onUpdateGameState) {
+        onUpdateGameState({
+          currentEmojis: generatedEmojis,
+          currentSongIndex: currentSong,
+          gamePhase: "guessing",
+          timeLeft: 30,
+        });
+      }
     } catch (error) {
       console.error("Error generating emojis:", error);
-      setEmojis("🎵🎶🎤✨");
+      //setApiError(error.message);
+
+      const fallbackEmojis = GeminiService.getFallbackEmojis(song.title);
+      setEmojis(fallbackEmojis);
       setGamePhase("guessing");
-      setTimeLeft(60);
+      setTimeLeft(30); // Changed from 60 to 30
+
+      // Share fallback emojis with all players (if host)
+      if (isHost && onUpdateGameState) {
+        onUpdateGameState({
+          currentEmojis: fallbackEmojis,
+          currentSongIndex: currentSong,
+          gamePhase: "guessing",
+          timeLeft: 30,
+        });
+      }
     }
 
     setIsGeneratingEmojis(false);
   };
+  useEffect(() => {
+    if (!isHost && room.currentGame) {
+      const {
+        currentEmojis,
+        currentSongIndex,
+        gamePhase: hostGamePhase,
+        timeLeft: hostTimeLeft,
+      } = room.currentGame;
+
+      if (currentEmojis && currentSongIndex !== undefined) {
+        setCurrentSong(currentSongIndex);
+        setEmojis(currentEmojis);
+        setGamePhase(hostGamePhase || "guessing");
+        setTimeLeft(hostTimeLeft || 30);
+      }
+    }
+  }, [room.currentGame, isHost]);
+
+  useEffect(() => {
+    if (gamePhase === "guessing" && timeLeft > 0) {
+      const timer = setTimeout(() => {
+        const newTimeLeft = timeLeft - 1;
+        setTimeLeft(newTimeLeft);
+
+        // Host updates time for all players
+        if (isHost && onUpdateGameState) {
+          onUpdateGameState({
+            timeLeft: newTimeLeft,
+          });
+        }
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (timeLeft === 0 && gamePhase === "guessing") {
+      setGamePhase("revealing");
+
+      // Host updates phase for all players
+      if (isHost && onUpdateGameState) {
+        onUpdateGameState({
+          gamePhase: "revealing",
+        });
+      }
+    }
+  }, [timeLeft, gamePhase, isHost, onUpdateGameState]);
 
   const handleGuessSubmit = (e) => {
     e.preventDefault();
@@ -55,10 +125,26 @@ const GamePlay = ({ room, onBackToSongs, isHost }) => {
 
   const nextSong = () => {
     if (currentSong < room.songs.length - 1) {
-      setCurrentSong(currentSong + 1);
+      const nextIndex = currentSong + 1;
+      setCurrentSong(nextIndex);
       setUserGuess("");
+
+      // Host updates song index for all players
+      if (isHost && onUpdateGameState) {
+        onUpdateGameState({
+          currentSongIndex: nextIndex,
+          gamePhase: "loading",
+        });
+      }
     } else {
       setGamePhase("finished");
+
+      // Host updates phase for all players
+      if (isHost && onUpdateGameState) {
+        onUpdateGameState({
+          gamePhase: "finished",
+        });
+      }
     }
   };
 

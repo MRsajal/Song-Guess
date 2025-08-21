@@ -21,12 +21,13 @@ export default function App() {
     setRoomData(newRoom);
     setCurrentView("game");
   };
-  const handleJoinRoom = (roomCode, playerName) => {
-    const joinedRoom = {
+  const handleJoinRoom = (roomCode, playerName, roomData = null) => {
+    const joinedRoom = roomData || {
       code: roomCode,
       host: "Demo Host",
+      hostId: "demo-host",
       participants: [
-        { id: "demoUser1", name: "Demo User 1" },
+        { id: "demo-host", name: "Demo Host" },
         { id: userId, name: playerName },
       ],
       songs: [],
