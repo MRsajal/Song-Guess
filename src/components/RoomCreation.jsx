@@ -1,18 +1,17 @@
 import React, { useState } from "react";
+import FirebaseService from "../firebase/firbaseService";
 
 const RoomCreation = ({ onCreateRoom, onBack }) => {
   const [hostName, setHostName] = useState("");
-  const [roomCode] = useState(() =>
-    Math.random().toString(36).substring(2, 6).toUpperCase()
-  );
   const [songs, setSongs] = useState([]);
   const [currentUrl, setCurrentUrl] = useState("");
   const [currentTitle, setCurrentTitle] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
 
   const extractVideoId = (url) => {
     const regex =
-      /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+      /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
     const match = url.match(regex);
     return match ? match[1] : null;
   };
@@ -38,7 +37,6 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
         title: title,
         videoId: videoId,
         addedAt: Date.now(),
-        id: Date.now(),
       };
 
       setSongs((prev) => [...prev, newSong]);
@@ -51,16 +49,32 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
     setIsLoading(false);
   };
 
-  const removeSong = (songId) => {
-    setSongs((prev) => prev.filter((song) => song.id !== songId));
+  const removeSong = (songIndex) => {
+    setSongs((prev) => prev.filter((_, index) => index !== songIndex));
   };
 
-  const handleCreate = (e) => {
-    e.preventDefault();
-    if (hostName.trim()) {
-      onCreateRoom(roomCode, hostName);
+  const handleCreateRoom = async () => {
+    if (!hostName.trim()) return;
+
+    setIsCreatingRoom(true);
+    const userId = `user_${Date.now()}_${Math.random()}`;
+
+    try {
+      const result = await FirebaseService.createRoom(hostName, userId, songs);
+
+      if (result.success) {
+        onCreateRoom(result.roomCode, hostName, userId, result.roomData);
+      } else {
+        alert(result.error || "Failed to create room");
+      }
+    } catch (error) {
+      console.error("Error creating room:", error);
+      alert("Failed to create room. Please try again.");
     }
+
+    setIsCreatingRoom(false);
   };
+
   return (
     <div className="screen-container">
       <div className="content-wrapper">
@@ -81,17 +95,6 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
                 placeholder="Enter your name"
                 required
               />
-            </div>
-
-            <div className="form-group">
-              <label>Room Code:</label>
-              <input
-                type="text"
-                value={roomCode}
-                disabled
-                className="room-code-display"
-              />
-              <small>Share this code with your friends!</small>
             </div>
           </div>
 
@@ -132,7 +135,7 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
               <h3>Added Songs ({songs.length})</h3>
               <div className="song-list">
                 {songs.map((song, index) => (
-                  <div key={song.id} className="song-item">
+                  <div key={index} className="song-item">
                     <div className="song-info">
                       <span className="song-number">{index + 1}.</span>
                       <div className="song-details">
@@ -148,7 +151,7 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
                       </div>
                     </div>
                     <button
-                      onClick={() => removeSong(song.id)}
+                      onClick={() => removeSong(index)}
                       className="remove-btn"
                       type="button"
                     >
@@ -162,11 +165,15 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
 
           <div className="create-room-section">
             <button
-              onClick={handleCreate}
+              onClick={handleCreateRoom}
               className="btn btn-primary btn-large"
-              disabled={!hostName.trim()}
+              disabled={!hostName.trim() || isCreatingRoom}
             >
-              Create Room {songs.length > 0 && `with ${songs.length} songs`}
+              {isCreatingRoom
+                ? "Creating Room..."
+                : `Create Room ${
+                    songs.length > 0 ? `with ${songs.length} songs` : ""
+                  }`}
             </button>
             {songs.length === 0 && (
               <p className="help-text">

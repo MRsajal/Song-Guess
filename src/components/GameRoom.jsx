@@ -1,48 +1,72 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import SongManager from "./SongManager";
 import GamePlay from "./GamePlay";
+import FirebaseService from "../firebase/firbaseService";
 
 const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
   const [room, setRoom] = useState(roomData);
   const [currentView, setCurrentView] = useState("songs");
-  const [roomState, setRoomState] = useState("songs");
+  const [isConnected, setIsConnected] = useState(true);
 
   const isHost = userId === room.hostId;
 
-  const addSong = (song) => {
-    setRoom((prev) => ({
-      ...prev,
-      songs: [...prev.songs, { ...song, id: Date.now() }],
-    }));
-  };
+  useEffect(() => {
+    // Subscribe to real-time room updates
+    const unsubscribe = FirebaseService.subscribeToRoom(
+      room.code,
+      (updatedRoom) => {
+        if (updatedRoom) {
+          setRoom(updatedRoom);
+          setIsConnected(true);
 
-  const removeSong = (songId) => {
-    setRoom((prev) => ({
-      ...prev,
-      songs: prev.songs.filter((song) => song.id !== songId),
-    }));
-  };
+          // Auto-switch to game view if host starts the game
+          if (updatedRoom.gameState === "playing" && currentView === "songs") {
+            setCurrentView("game");
+          }
+        } else {
+          // Room was deleted
+          setIsConnected(false);
+          alert("Room no longer exists");
+          onLeaveRoom();
+        }
+      }
+    );
 
-  const startGame = () => {
-    if (room.songs.length > 0) {
-      const shuffledSongs = [...room.songs].sort(() => Math.random() - 0.5);
+    return () => {
+      unsubscribe();
+    };
+  }, [room.code, currentView, onLeaveRoom]);
 
-      setCurrentView("game");
-      setRoomState("playing");
-      setRoom((prev) => ({
-        ...prev,
-        songs: shuffledSongs,
-        gameState: "playing",
-        currentGame: {
-          currentSongIndex: 0,
-          scores: {},
-          startTime: Date.now(),
-          currentEmojis: "", // Add this to store current emojis
-          currentSongTitle: shuffledSongs[0]?.title || "",
-        },
-      }));
+  const addSong = async (song) => {
+    const result = await FirebaseService.addSong(room.code, song);
+    if (!result.success) {
+      alert(result.error || "Failed to add song");
     }
   };
+
+  const removeSong = async (songId) => {
+    const result = await FirebaseService.removeSong(room.code, songId);
+    if (!result.success) {
+      alert(result.error || "Failed to remove song");
+    }
+  };
+
+  const startGame = async () => {
+    if (room.songs && Object.keys(room.songs).length > 0) {
+      const result = await FirebaseService.startGame(room.code, room.songs);
+      if (result.success) {
+        setCurrentView("game");
+      } else {
+        alert(result.error || "Failed to start game");
+      }
+    }
+  };
+
+  const handleLeaveRoom = async () => {
+    await FirebaseService.leaveRoom(room.code, userId);
+    onLeaveRoom();
+  };
+
   const copyRoomCode = () => {
     navigator.clipboard.writeText(room.code);
     alert("Room code copied to clipboard!");
@@ -60,15 +84,31 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
     }
   };
 
-  const updateGameState = (newGameState) => {
-    setRoom((prev) => ({
-      ...prev,
-      currentGame: {
-        ...prev.currentGame,
-        ...newGameState,
-      },
-    }));
-  };
+  if (!isConnected) {
+    return (
+      <div className="screen-container">
+        <div className="content-wrapper">
+          <div className="card">
+            <div className="connection-error">
+              <h2>⚠️ Connection Lost</h2>
+              <p>
+                Unable to connect to the room. Please check your internet
+                connection.
+              </p>
+              <button onClick={onLeaveRoom} className="btn btn-primary">
+                Back to Home
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Convert participants object to array for display
+  const participantsArray = room.participants
+    ? Object.values(room.participants)
+    : [];
 
   return (
     <div className="game-room">
@@ -88,9 +128,9 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
         </div>
 
         <div className="participants">
-          <h3>Players ({room.participants.length})</h3>
+          <h3>Players ({participantsArray.length})</h3>
           <div className="participant-list">
-            {room.participants.map((participant) => (
+            {participantsArray.map((participant) => (
               <span key={participant.id} className="participant">
                 {participant.name} {participant.id === room.hostId && "👑"}
               </span>
@@ -98,25 +138,25 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
           </div>
         </div>
 
-        <button className="leave-btn" onClick={onLeaveRoom}>
+        <button className="leave-btn" onClick={handleLeaveRoom}>
           Leave Room
         </button>
       </div>
 
       <div className="game-content">
-        {currentView === "game" ? (
-          <GamePlay
-            room={room}
-            onBackToSongs={() => setCurrentView("songs")}
-            onUpdateGameState={updateGameState} // Add this prop
-            isHost={isHost}
-          />
-        ) : (
+        {currentView === "songs" ? (
           <SongManager
-            songs={room.songs}
+            songs={room.songs || {}}
             onAddSong={addSong}
             onRemoveSong={removeSong}
             onStartGame={startGame}
+            isHost={isHost}
+          />
+        ) : (
+          <GamePlay
+            room={room}
+            userId={userId}
+            onBackToSongs={() => setCurrentView("songs")}
             isHost={isHost}
           />
         )}

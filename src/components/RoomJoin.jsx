@@ -1,47 +1,36 @@
 import React, { useState } from "react";
+import FirebaseService from "../firebase/firbaseService";
 
 const RoomJoin = ({ onJoinRoom, onBack }) => {
   const [roomCode, setRoomCode] = useState("");
   const [playerName, setPlayerName] = useState("");
+  const [isJoining, setIsJoining] = useState(false);
 
-  const handleJoin = (e) => {
+  const handleJoin = async (e) => {
     e.preventDefault();
-    if (roomCode.trim() && playerName.trim()) {
-      // Simulate joining a room that might already have a game in progress
-      const joinedRoom = {
-        code: roomCode.toUpperCase(),
-        host: "Demo Host",
-        hostId: "demo-host",
-        participants: [
-          { id: "demo-host", name: "Demo Host" },
-          { id: Date.now().toString(), name: playerName },
-        ],
-        songs: [
-          {
-            id: 1,
-            title: "Shape of You",
-            url: "https://youtube.com/watch?v=demo1",
-            videoId: "demo1",
-          },
-          {
-            id: 2,
-            title: "Blinding Lights",
-            url: "https://youtube.com/watch?v=demo2",
-            videoId: "demo2",
-          },
-        ],
-        currentGame: {
-          currentSongIndex: 0,
-          scores: {},
-          startTime: Date.now(),
-          currentEmojis: "🔷👤💘🎵", // Demo emojis
-          gamePhase: "guessing",
-          timeLeft: 25,
-        },
-        gameState: "playing",
-      };
-      onJoinRoom(roomCode.toUpperCase(), playerName, joinedRoom);
+    if (!roomCode.trim() || !playerName.trim()) return;
+
+    setIsJoining(true);
+    const userId = `user_${Date.now()}_${Math.random()}`;
+
+    try {
+      const result = await FirebaseService.joinRoom(
+        roomCode.toUpperCase(),
+        playerName,
+        userId
+      );
+
+      if (result.success) {
+        onJoinRoom(roomCode.toUpperCase(), playerName, userId, result.roomData);
+      } else {
+        alert(result.error || "Failed to join room");
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+      alert("Failed to join room. Please check the room code and try again.");
     }
+
+    setIsJoining(false);
   };
 
   return (
@@ -60,8 +49,8 @@ const RoomJoin = ({ onJoinRoom, onBack }) => {
                 type="text"
                 value={roomCode}
                 onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                placeholder="Enter 4-digit room code"
-                maxLength={4}
+                placeholder="Enter 6-digit room code"
+                maxLength={6}
                 className="room-code-input"
                 required
               />
@@ -76,8 +65,12 @@ const RoomJoin = ({ onJoinRoom, onBack }) => {
                 required
               />
             </div>
-            <button type="submit" className="btn btn-primary btn-large">
-              Join Room
+            <button
+              type="submit"
+              className="btn btn-primary btn-large"
+              disabled={isJoining}
+            >
+              {isJoining ? "Joining..." : "Join Room"}
             </button>
           </form>
         </div>

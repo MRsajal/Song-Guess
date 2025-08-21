@@ -1,150 +1,133 @@
 import React, { useState, useEffect } from "react";
 import GeminiService from "./GeminiService";
+import FirebaseService from "../firebase/firbaseService";
 
-const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
-  const [currentSong, setCurrentSong] = useState(0);
-  const [emojis, setEmojis] = useState("");
+const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
+  const [currentSong, setCurrentSong] = useState(
+    room.currentGame?.currentSongIndex || 0
+  );
+  const [emojis, setEmojis] = useState(room.currentGame?.currentEmojis || "");
   const [userGuess, setUserGuess] = useState("");
-  const [gamePhase, setGamePhase] = useState("loading");
-  const [timeLeft, setTimeLeft] = useState(30);
-  const [scores, setScores] = useState({});
-  const [isGeneratingEmojis, setIsGeneratingEmojis] = useState(false);
+  const [gamePhase, setGamePhase] = useState(
+    room.currentGame?.gamePhase || "loading"
+  );
+  const [timeLeft, setTimeLeft] = useState(room.currentGame?.timeLeft || 30);
+  const [apiError, setApiError] = useState(null);
+  const [guessSubmitted, setGuessSubmitted] = useState(false);
+  const [guessResult, setGuessResult] = useState(null);
+
+  const songs =
+    room.currentGame?.shuffledSongs || Object.values(room.songs || {});
 
   useEffect(() => {
-    generateEmojisForCurrentSong();
-  }, [currentSong]);
-
-  useEffect(() => {
-    if (gamePhase === "guessing" && timeLeft > 0) {
-      const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (timeLeft === 0 && gamePhase === "guessing") {
-      setGamePhase("revealing");
+    // Sync with room's current game state
+    if (room.currentGame) {
+      setCurrentSong(room.currentGame.currentSongIndex || 0);
+      setEmojis(room.currentGame.currentEmojis || "");
+      setGamePhase(room.currentGame.gamePhase || "loading");
+      setTimeLeft(room.currentGame.timeLeft || 30);
     }
-  }, [timeLeft, gamePhase]);
+  }, [room.currentGame]);
+
+  useEffect(() => {
+    // Only host generates emojis
+    if (isHost && gamePhase === "loading") {
+      generateEmojisForCurrentSong();
+    }
+  }, [currentSong, isHost, gamePhase]);
+
+  useEffect(() => {
+    // Timer countdown - only host manages the timer
+    if (isHost && gamePhase === "guessing" && timeLeft > 0) {
+      const timer = setTimeout(async () => {
+        const newTimeLeft = timeLeft - 1;
+        await FirebaseService.updateGameState(room.code, {
+          timeLeft: newTimeLeft,
+        });
+
+        if (newTimeLeft === 0) {
+          await FirebaseService.updateGameState(room.code, {
+            gamePhase: "revealing",
+          });
+        }
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [timeLeft, gamePhase, isHost, room.code]);
 
   const generateEmojisForCurrentSong = async () => {
-    const song = room.songs[currentSong];
+    const song = songs[currentSong];
     if (!song) return;
 
-    setIsGeneratingEmojis(true);
-    setGamePhase("loading");
-    //setApiError(null);
+    setApiError(null);
 
     try {
       console.log("Generating emojis for:", song.title);
       const generatedEmojis = await GeminiService.generateEmojis(song.title);
       console.log("Generated emojis:", generatedEmojis);
 
-      setEmojis(generatedEmojis);
-      setGamePhase("guessing");
-      setTimeLeft(30); // Changed from 60 to 30
-
-      // Share emojis with all players (if host)
-      if (isHost && onUpdateGameState) {
-        onUpdateGameState({
-          currentEmojis: generatedEmojis,
-          currentSongIndex: currentSong,
-          gamePhase: "guessing",
-          timeLeft: 30,
-        });
-      }
+      // Update Firebase with generated emojis
+      await FirebaseService.updateGameState(room.code, {
+        currentEmojis: generatedEmojis,
+        gamePhase: "guessing",
+        timeLeft: 30,
+      });
     } catch (error) {
       console.error("Error generating emojis:", error);
-      //setApiError(error.message);
+      setApiError(error.message);
 
+      // Use fallback emojis
       const fallbackEmojis = GeminiService.getFallbackEmojis(song.title);
-      setEmojis(fallbackEmojis);
-      setGamePhase("guessing");
-      setTimeLeft(30); // Changed from 60 to 30
-
-      // Share fallback emojis with all players (if host)
-      if (isHost && onUpdateGameState) {
-        onUpdateGameState({
-          currentEmojis: fallbackEmojis,
-          currentSongIndex: currentSong,
-          gamePhase: "guessing",
-          timeLeft: 30,
-        });
-      }
+      await FirebaseService.updateGameState(room.code, {
+        currentEmojis: fallbackEmojis,
+        gamePhase: "guessing",
+        timeLeft: 30,
+      });
     }
-
-    setIsGeneratingEmojis(false);
   };
-  useEffect(() => {
-    if (!isHost && room.currentGame) {
-      const {
-        currentEmojis,
-        currentSongIndex,
-        gamePhase: hostGamePhase,
-        timeLeft: hostTimeLeft,
-      } = room.currentGame;
 
-      if (currentEmojis && currentSongIndex !== undefined) {
-        setCurrentSong(currentSongIndex);
-        setEmojis(currentEmojis);
-        setGamePhase(hostGamePhase || "guessing");
-        setTimeLeft(hostTimeLeft || 30);
-      }
-    }
-  }, [room.currentGame, isHost]);
-
-  useEffect(() => {
-    if (gamePhase === "guessing" && timeLeft > 0) {
-      const timer = setTimeout(() => {
-        const newTimeLeft = timeLeft - 1;
-        setTimeLeft(newTimeLeft);
-
-        // Host updates time for all players
-        if (isHost && onUpdateGameState) {
-          onUpdateGameState({
-            timeLeft: newTimeLeft,
-          });
-        }
-      }, 1000);
-      return () => clearTimeout(timer);
-    } else if (timeLeft === 0 && gamePhase === "guessing") {
-      setGamePhase("revealing");
-
-      // Host updates phase for all players
-      if (isHost && onUpdateGameState) {
-        onUpdateGameState({
-          gamePhase: "revealing",
-        });
-      }
-    }
-  }, [timeLeft, gamePhase, isHost, onUpdateGameState]);
-
-  const handleGuessSubmit = (e) => {
+  const handleGuessSubmit = async (e) => {
     e.preventDefault();
-    if (userGuess.trim()) {
-      console.log("Guess submitted:", userGuess);
-      // Store the guess for later comparison
+    if (userGuess.trim() && !guessSubmitted) {
+      setGuessSubmitted(true);
+
+      const result = await FirebaseService.submitGuess(
+        room.code,
+        userId,
+        userGuess,
+        songs[currentSong]?.title
+      );
+
+      if (result.success) {
+        setGuessResult(result.correct);
+      }
     }
   };
 
-  const nextSong = () => {
-    if (currentSong < room.songs.length - 1) {
+  const nextSong = async () => {
+    if (currentSong < songs.length - 1) {
       const nextIndex = currentSong + 1;
-      setCurrentSong(nextIndex);
+      await FirebaseService.updateGameState(room.code, {
+        currentSongIndex: nextIndex,
+        gamePhase: "loading",
+        currentEmojis: "",
+        timeLeft: 30,
+      });
+      setGuessSubmitted(false);
+      setGuessResult(null);
       setUserGuess("");
-
-      // Host updates song index for all players
-      if (isHost && onUpdateGameState) {
-        onUpdateGameState({
-          currentSongIndex: nextIndex,
-          gamePhase: "loading",
-        });
-      }
     } else {
-      setGamePhase("finished");
+      await FirebaseService.updateGameState(room.code, {
+        gamePhase: "finished",
+      });
+    }
+  };
 
-      // Host updates phase for all players
-      if (isHost && onUpdateGameState) {
-        onUpdateGameState({
-          gamePhase: "finished",
-        });
-      }
+  const retryGeneration = async () => {
+    if (isHost) {
+      await FirebaseService.updateGameState(room.code, {
+        gamePhase: "loading",
+      });
     }
   };
 
@@ -165,7 +148,19 @@ const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
             <div className="loading-state">
               <div className="spinner"></div>
               <h3>Generating emojis...</h3>
-              <p>Creating emoji clues for "{room.songs[currentSong]?.title}"</p>
+              <p>Creating emoji clues for "{songs[currentSong]?.title}"</p>
+              {isHost && apiError && (
+                <div className="api-error">
+                  <p className="error-message">⚠️ API Error: {apiError}</p>
+                  <p className="error-help">Using fallback emojis instead</p>
+                  <button
+                    onClick={retryGeneration}
+                    className="btn btn-secondary"
+                  >
+                    🔄 Retry with AI
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -181,12 +176,12 @@ const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
             <div className="game-finished">
               <div className="finish-icon">🎉</div>
               <h2>Game Finished!</h2>
-              <p>You completed all {room.songs.length} songs!</p>
+              <p>You completed all {songs.length} songs!</p>
               <button
                 onClick={onBackToSongs}
                 className="btn btn-primary btn-large"
               >
-                🎵 Play Again
+                🎵 Back to Room
               </button>
             </div>
           </div>
@@ -206,13 +201,13 @@ const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
           <div className="game-header">
             <div className="game-progress">
               <h3>
-                Song {currentSong + 1} of {room.songs.length}
+                Song {currentSong + 1} of {songs.length}
               </h3>
               <div className="progress-bar">
                 <div
                   className="progress-fill"
                   style={{
-                    width: `${((currentSong + 1) / room.songs.length) * 100}%`,
+                    width: `${((currentSong + 1) / songs.length) * 100}%`,
                   }}
                 ></div>
               </div>
@@ -225,6 +220,14 @@ const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
           <div className="emoji-display">
             <h2>Guess the song from these emojis:</h2>
             <div className="emojis">{emojis}</div>
+            {apiError && isHost && (
+              <div className="emoji-source">
+                <small>Generated using fallback system</small>
+                <button onClick={retryGeneration} className="retry-btn">
+                  🤖 Try AI Again
+                </button>
+              </div>
+            )}
           </div>
 
           {gamePhase === "guessing" && (
@@ -237,12 +240,27 @@ const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
                     onChange={(e) => setUserGuess(e.target.value)}
                     placeholder="Type your guess here..."
                     className="guess-input"
+                    disabled={guessSubmitted}
                   />
                 </div>
-                <button type="submit" className="btn btn-primary">
-                  Submit Guess
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={guessSubmitted || !userGuess.trim()}
+                >
+                  {guessSubmitted ? "Submitted!" : "Submit Guess"}
                 </button>
               </form>
+
+              {guessResult !== null && (
+                <div
+                  className={`guess-feedback ${
+                    guessResult ? "correct" : "incorrect"
+                  }`}
+                >
+                  {guessResult ? "✅ Correct!" : "❌ Not quite right"}
+                </div>
+              )}
             </div>
           )}
 
@@ -251,10 +269,10 @@ const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
               <h3>⏰ Time's up!</h3>
               <div className="answer-reveal">
                 <p>The answer was:</p>
-                <h2 className="answer">"{room.songs[currentSong].title}"</h2>
+                <h2 className="answer">"{songs[currentSong]?.title}"</h2>
               </div>
               <a
-                href={room.songs[currentSong].url}
+                href={songs[currentSong]?.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-secondary youtube-link"
@@ -266,7 +284,7 @@ const GamePlay = ({ room, onBackToSongs, isHost, onUpdateGameState }) => {
                   onClick={nextSong}
                   className="btn btn-primary btn-large"
                 >
-                  {currentSong < room.songs.length - 1
+                  {currentSong < songs.length - 1
                     ? "➡️ Next Song"
                     : "🏁 Finish Game"}
                 </button>
