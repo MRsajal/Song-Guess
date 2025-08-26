@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import GeminiService from "./GeminiService";
 import FirebaseService from "../firebase/firbaseService";
 
@@ -15,6 +15,9 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
   const [apiError, setApiError] = useState(null);
   const [guessSubmitted, setGuessSubmitted] = useState(false);
   const [guessResult, setGuessResult] = useState(null);
+  const [userAttempts, setUserAttempts] = useState(0);
+  const [pointsEarned, setPointsEarned] = useState(0);
+  const [leaderboard, setLeaderboard] = useState([]);
 
   const songs =
     room.currentGame?.shuffledSongs || Object.values(room.songs || {});
@@ -26,36 +29,35 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
       setEmojis(room.currentGame.currentEmojis || "");
       setGamePhase(room.currentGame.gamePhase || "loading");
       setTimeLeft(room.currentGame.timeLeft || 30);
-    }
-  }, [room.currentGame]);
-
-  useEffect(() => {
-    // Only host generates emojis
-    if (isHost && gamePhase === "loading") {
-      generateEmojisForCurrentSong();
-    }
-  }, [currentSong, isHost, gamePhase]);
-
-  useEffect(() => {
-    // Timer countdown - only host manages the timer
-    if (isHost && gamePhase === "guessing" && timeLeft > 0) {
-      const timer = setTimeout(async () => {
-        const newTimeLeft = timeLeft - 1;
-        await FirebaseService.updateGameState(room.code, {
-          timeLeft: newTimeLeft,
-        });
-
-        if (newTimeLeft === 0) {
-          await FirebaseService.updateGameState(room.code, {
-            gamePhase: "revealing",
-          });
+      
+      // Reset guess state when song changes
+      const newSongIndex = room.currentGame.currentSongIndex || 0;
+      if (newSongIndex !== currentSong) {
+        setGuessSubmitted(false);
+        setGuessResult(null);
+        setUserAttempts(0);
+        setPointsEarned(0);
+        setUserGuess("");
+      }
+      
+      // Count user's attempts for current song
+      if (room.currentGame.guesses) {
+        const guesses = Object.values(room.currentGame.guesses);
+        const userGuessesForCurrentSong = guesses.filter(g => g.userId === userId);
+        setUserAttempts(userGuessesForCurrentSong.length);
+        
+        // Check if user already guessed correctly
+        const correctGuess = userGuessesForCurrentSong.find(g => g.correct);
+        if (correctGuess) {
+          setGuessSubmitted(true);
+          setGuessResult(true);
+          setPointsEarned(correctGuess.points || 0);
         }
-      }, 1000);
-      return () => clearTimeout(timer);
+      }
     }
-  }, [timeLeft, gamePhase, isHost, room.code]);
+  }, [room.currentGame, userId, currentSong]);
 
-  const generateEmojisForCurrentSong = async () => {
+  const generateEmojisForCurrentSong = useCallback(async () => {
     const song = songs[currentSong];
     if (!song) return;
 
@@ -84,7 +86,46 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
         timeLeft: 30,
       });
     }
-  };
+  }, [songs, currentSong, room.code]);
+
+  useEffect(() => {
+    // Only host generates emojis
+    if (isHost && gamePhase === "loading") {
+      generateEmojisForCurrentSong();
+    }
+  }, [currentSong, isHost, gamePhase, generateEmojisForCurrentSong]);
+
+  useEffect(() => {
+    // Load leaderboard when game finishes
+    if (gamePhase === "finished" && leaderboard.length === 0) {
+      const loadLeaderboard = async () => {
+        const scoresResult = await FirebaseService.getFinalScores(room.code);
+        if (scoresResult.success) {
+          setLeaderboard(scoresResult.leaderboard);
+        }
+      };
+      loadLeaderboard();
+    }
+  }, [gamePhase, room.code, leaderboard.length]);
+
+  useEffect(() => {
+    // Timer countdown - only host manages the timer
+    if (isHost && gamePhase === "guessing" && timeLeft > 0) {
+      const timer = setTimeout(async () => {
+        const newTimeLeft = timeLeft - 1;
+        await FirebaseService.updateGameState(room.code, {
+          timeLeft: newTimeLeft,
+        });
+
+        if (newTimeLeft === 0) {
+          await FirebaseService.updateGameState(room.code, {
+            gamePhase: "revealing",
+          });
+        }
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [timeLeft, gamePhase, isHost, room.code]);
 
   const handleGuessSubmit = async (e) => {
     e.preventDefault();
@@ -100,6 +141,9 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
 
       if (result.success) {
         setGuessResult(result.correct);
+        if (result.correct) {
+          setPointsEarned(result.points);
+        }
       }
     }
   };
@@ -116,10 +160,18 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
       setGuessSubmitted(false);
       setGuessResult(null);
       setUserGuess("");
+      setUserAttempts(0);
+      setPointsEarned(0);
     } else {
       await FirebaseService.updateGameState(room.code, {
         gamePhase: "finished",
       });
+      
+      // Load final scores
+      const scoresResult = await FirebaseService.getFinalScores(room.code);
+      if (scoresResult.success) {
+        setLeaderboard(scoresResult.leaderboard);
+      }
     }
   };
 
@@ -177,6 +229,27 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
               <div className="finish-icon">🎉</div>
               <h2>Game Finished!</h2>
               <p>You completed all {songs.length} songs!</p>
+              
+              {leaderboard.length > 0 && (
+                <div className="leaderboard">
+                  <h3>🏆 Final Scores</h3>
+                  <div className="leaderboard-list">
+                    {leaderboard.map((player, index) => (
+                      <div 
+                        key={player.userId} 
+                        className={`leaderboard-item ${index === 0 ? 'winner' : ''} ${player.userId === userId ? 'current-user' : ''}`}
+                      >
+                        <div className="rank">
+                          {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                        </div>
+                        <div className="player-name">{player.name}</div>
+                        <div className="player-score">{player.score} pts</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
               <button
                 onClick={onBackToSongs}
                 className="btn btn-primary btn-large"
@@ -212,8 +285,15 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
                 ></div>
               </div>
             </div>
-            <div className={`timer ${timeLeft <= 10 ? "timer-urgent" : ""}`}>
-              ⏱️ {formatTime(timeLeft)}
+            <div className="game-stats">
+              <div className={`timer ${timeLeft <= 10 ? "timer-urgent" : ""}`}>
+                ⏱️ {formatTime(timeLeft)}
+              </div>
+              {room.currentGame?.scores && room.currentGame.scores[userId] && (
+                <div className="current-score">
+                  🏆 Score: {room.currentGame.scores[userId]}
+                </div>
+              )}
             </div>
           </div>
 
@@ -232,25 +312,37 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
 
           {gamePhase === "guessing" && (
             <div className="guess-section">
-              <form onSubmit={handleGuessSubmit}>
-                <div className="form-group">
-                  <input
-                    type="text"
-                    value={userGuess}
-                    onChange={(e) => setUserGuess(e.target.value)}
-                    placeholder="Type your guess here..."
-                    className="guess-input"
-                    disabled={guessSubmitted}
-                  />
+              {userAttempts > 0 && (
+                <div className="attempt-info">
+                  <p>Attempt #{userAttempts + 1}</p>
+                  <div className="points-info">
+                    <span>Points for correct answer: </span>
+                    <strong>{FirebaseService.calculatePoints(userAttempts + 1)}</strong>
+                  </div>
                 </div>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={guessSubmitted || !userGuess.trim()}
-                >
-                  {guessSubmitted ? "Submitted!" : "Submit Guess"}
-                </button>
-              </form>
+              )}
+              
+              {!guessSubmitted && (
+                <form onSubmit={handleGuessSubmit}>
+                  <div className="form-group">
+                    <input
+                      type="text"
+                      value={userGuess}
+                      onChange={(e) => setUserGuess(e.target.value)}
+                      placeholder="Type your guess here..."
+                      className="guess-input"
+                      disabled={guessSubmitted}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={guessSubmitted || !userGuess.trim()}
+                  >
+                    Submit Guess
+                  </button>
+                </form>
+              )}
 
               {guessResult !== null && (
                 <div
@@ -258,7 +350,14 @@ const GamePlay = ({ room, userId, onBackToSongs, isHost }) => {
                     guessResult ? "correct" : "incorrect"
                   }`}
                 >
-                  {guessResult ? "✅ Correct!" : "❌ Not quite right"}
+                  {guessResult ? (
+                    <div>
+                      <div className="feedback-text">✅ Correct!</div>
+                      <div className="points-earned">+{pointsEarned} points!</div>
+                    </div>
+                  ) : (
+                    <div className="feedback-text">❌ Not quite right, try again!</div>
+                  )}
                 </div>
               )}
             </div>

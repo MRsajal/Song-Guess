@@ -4,45 +4,69 @@ import FirebaseService from "../firebase/firbaseService";
 const RoomCreation = ({ onCreateRoom, onBack }) => {
   const [hostName, setHostName] = useState("");
   const [songs, setSongs] = useState([]);
-  const [currentUrl, setCurrentUrl] = useState("");
+  const [currentInput, setCurrentInput] = useState("");
   const [currentTitle, setCurrentTitle] = useState("");
+  const [inputType, setInputType] = useState("url"); // "url" or "name"
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
 
   const extractVideoId = (url) => {
     const regex =
-      /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+      /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/;
     const match = url.match(regex);
     return match ? match[1] : null;
   };
 
+  const isValidYouTubeUrl = (url) => {
+    return extractVideoId(url) !== null;
+  };
+
   const handleAddSong = async (e) => {
     e.preventDefault();
-    if (!currentUrl.trim()) return;
+    if (!currentInput.trim()) return;
 
     setIsLoading(true);
-    const videoId = extractVideoId(currentUrl);
-
-    if (!videoId) {
-      alert("Please enter a valid YouTube URL");
-      setIsLoading(false);
-      return;
-    }
 
     try {
-      const title = currentTitle.trim() || `Song ${songs.length + 1}`;
+      let newSong;
 
-      const newSong = {
-        url: currentUrl,
-        title: title,
-        videoId: videoId,
-        addedAt: Date.now(),
-      };
+      if (inputType === "url") {
+        // Handle YouTube URL
+        const videoId = extractVideoId(currentInput);
+
+        if (!videoId) {
+          alert("Please enter a valid YouTube URL");
+          setIsLoading(false);
+          return;
+        }
+
+        const title = currentTitle.trim() || `Song ${songs.length + 1}`;
+
+        newSong = {
+          url: currentInput,
+          title: title,
+          videoId: videoId,
+          addedAt: Date.now(),
+          type: "youtube"
+        };
+      } else {
+        // Handle song name only
+        const title = currentInput.trim();
+
+        newSong = {
+          url: "", // No URL for song name only
+          title: title,
+          videoId: null,
+          addedAt: Date.now(),
+          type: "name"
+        };
+      }
 
       setSongs((prev) => [...prev, newSong]);
-      setCurrentUrl("");
+      setCurrentInput("");
       setCurrentTitle("");
     } catch (error) {
+      console.error("Error adding song:", error);
       alert("Error adding song. Please try again.");
     }
 
@@ -105,26 +129,66 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
 
           <form onSubmit={handleAddSong} className="add-song-form">
             <div className="form-group">
-              <label>YouTube URL:</label>
-              <input
-                type="url"
-                value={currentUrl}
-                onChange={(e) => setCurrentUrl(e.target.value)}
-                placeholder="Paste YouTube URL here..."
-              />
+              <label>Add Song By:</label>
+              <div className="input-type-selector">
+                <button
+                  type="button"
+                  className={`btn ${inputType === "url" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => {
+                    setInputType("url");
+                    setCurrentInput("");
+                    setCurrentTitle("");
+                  }}
+                >
+                  YouTube URL
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${inputType === "name" ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => {
+                    setInputType("name");
+                    setCurrentInput("");
+                    setCurrentTitle("");
+                  }}
+                >
+                  Song Name
+                </button>
+              </div>
             </div>
+            
             <div className="form-group">
-              <label>Song Title (Optional):</label>
+              <label>
+                {inputType === "url" ? "YouTube URL:" : "Song Name:"}
+              </label>
               <input
-                type="text"
-                value={currentTitle}
-                onChange={(e) => setCurrentTitle(e.target.value)}
-                placeholder="Enter song title"
+                type={inputType === "url" ? "url" : "text"}
+                value={currentInput}
+                onChange={(e) => setCurrentInput(e.target.value)}
+                placeholder={
+                  inputType === "url" 
+                    ? "Paste YouTube URL here..." 
+                    : "Enter song name..."
+                }
+                required
               />
             </div>
+            
+            {inputType === "url" && (
+              <div className="form-group">
+                <label>Song Title (Optional):</label>
+                <input
+                  type="text"
+                  value={currentTitle}
+                  onChange={(e) => setCurrentTitle(e.target.value)}
+                  placeholder="Enter custom song title"
+                />
+                <small>Leave empty to use default title</small>
+              </div>
+            )}
+            
             <button
               type="submit"
-              disabled={isLoading || !currentUrl.trim()}
+              disabled={isLoading || !currentInput.trim()}
               className="btn btn-add"
             >
               {isLoading ? "Adding..." : "+ Add Song"}
@@ -141,14 +205,18 @@ const RoomCreation = ({ onCreateRoom, onBack }) => {
                       <span className="song-number">{index + 1}.</span>
                       <div className="song-details">
                         <h4>{song.title}</h4>
-                        <a
-                          href={song.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="song-url"
-                        >
-                          🎵 YouTube
-                        </a>
+                        {song.type === "youtube" ? (
+                          <a
+                            href={song.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="song-url"
+                          >
+                            🎵 YouTube
+                          </a>
+                        ) : (
+                          <span className="song-type">🎤 Song Name Only</span>
+                        )}
                       </div>
                     </div>
                     <button

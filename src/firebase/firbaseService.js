@@ -281,22 +281,103 @@ class FirebaseService {
       // Clean userId to ensure it's Firebase-safe
       const safeUserId = userId.replace(/[.#$\/\[\]]/g, "_");
 
+      const isCorrect = userGuess.toLowerCase().trim() === songTitle.toLowerCase().trim();
+      
       const guessData = {
         userId: safeUserId,
         guess: userGuess,
         timestamp: serverTimestamp(),
-        correct:
-          userGuess.toLowerCase().trim() === songTitle.toLowerCase().trim(),
+        correct: isCorrect,
       };
 
-      await push(
-        ref(database, `rooms/${roomCode}/currentGame/guesses`),
-        guessData
-      );
-      return { success: true, correct: guessData.correct };
+      // Get current guesses to determine attempt number
+      const guessesRef = ref(database, `rooms/${roomCode}/currentGame/guesses`);
+      const guessesSnapshot = await get(guessesRef);
+      const existingGuesses = guessesSnapshot.exists() ? Object.values(guessesSnapshot.val()) : [];
+      
+      // Count user's previous attempts for this song
+      const userAttempts = existingGuesses.filter(g => g.userId === safeUserId).length;
+      const attemptNumber = userAttempts + 1;
+      
+      guessData.attemptNumber = attemptNumber;
+
+      // If correct, calculate points based on attempt number
+      if (isCorrect) {
+        const points = this.calculatePoints(attemptNumber);
+        guessData.points = points;
+        
+        // Update user's total score
+        await this.updatePlayerScore(roomCode, safeUserId, points);
+      }
+
+      await push(ref(database, `rooms/${roomCode}/currentGame/guesses`), guessData);
+      
+      return { 
+        success: true, 
+        correct: isCorrect, 
+        points: isCorrect ? guessData.points : 0,
+        attemptNumber 
+      };
     } catch (error) {
       console.error("Error submitting guess:", error);
       return { success: false, error: "Failed to submit guess" };
+    }
+  }
+
+  // Calculate points based on attempt number
+  static calculatePoints(attemptNumber) {
+    switch (attemptNumber) {
+      case 1: return 100; // First try
+      case 2: return 75;  // Second try
+      case 3: return 50;  // Third try
+      case 4: return 25;  // Fourth try
+      default: return 10; // Fifth try and beyond
+    }
+  }
+
+  // Update player's total score
+  static async updatePlayerScore(roomCode, userId, points) {
+    try {
+      const scoreRef = ref(database, `rooms/${roomCode}/currentGame/scores/${userId}`);
+      const scoreSnapshot = await get(scoreRef);
+      const currentScore = scoreSnapshot.exists() ? scoreSnapshot.val() : 0;
+      
+      await set(scoreRef, currentScore + points);
+      return { success: true };
+    } catch (error) {
+      console.error("Error updating player score:", error);
+      return { success: false, error: "Failed to update score" };
+    }
+  }
+
+  // Get final scores for leaderboard
+  static async getFinalScores(roomCode) {
+    try {
+      const scoresRef = ref(database, `rooms/${roomCode}/currentGame/scores`);
+      const participantsRef = ref(database, `rooms/${roomCode}/participants`);
+      
+      const [scoresSnapshot, participantsSnapshot] = await Promise.all([
+        get(scoresRef),
+        get(participantsRef)
+      ]);
+      
+      const scores = scoresSnapshot.exists() ? scoresSnapshot.val() : {};
+      const participants = participantsSnapshot.exists() ? participantsSnapshot.val() : {};
+      
+      // Create leaderboard array
+      const leaderboard = Object.keys(participants).map(userId => ({
+        userId,
+        name: participants[userId].name,
+        score: scores[userId] || 0
+      }));
+      
+      // Sort by score (highest first)
+      leaderboard.sort((a, b) => b.score - a.score);
+      
+      return { success: true, leaderboard };
+    } catch (error) {
+      console.error("Error getting final scores:", error);
+      return { success: false, error: "Failed to get final scores" };
     }
   }
 }

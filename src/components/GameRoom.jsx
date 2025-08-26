@@ -180,6 +180,7 @@ const GameRoom = ({ roomData, userId, onLeaveRoom }) => {
             onRemoveSong={removeSong}
             onStartGame={startGame}
             isHost={isHost}
+            roomCode={room.code}
           />
         ) : (
           <GamePlay
